@@ -24,6 +24,25 @@ android {
         versionName "1.4"
     }
 
+    // 按 ABI 分成两个 flavor：armeabi（armeabi-v7a）与 arm64（arm64-v8a）。
+    // 当前应用是纯 Java，没有 native 库，因此两个 APK 功能一致；
+    // 保留 flavor 便于后续加入 native 组件或按 ABI 分发。
+    flavorDimensions += ["abi"]
+    productFlavors {
+        armeabi {
+            dimension "abi"
+            ndk {
+                abiFilters 'armeabi-v7a'
+            }
+        }
+        arm64 {
+            dimension "abi"
+            ndk {
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+
     signingConfigs {
         release {
             if (hasReleaseSigning) {

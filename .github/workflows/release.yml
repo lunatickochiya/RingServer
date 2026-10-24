@@ -34,7 +34,6 @@ jobs:
         run: |
           TAG="RingServer-$(date +'%Y.%m.%d-%H%M')"
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "APK_NAME=$TAG.apk" >> "$GITHUB_ENV"
 
       - name: Configure Android SDK
         run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
@@ -78,27 +77,35 @@ jobs:
             echo "RINGSERVER_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
-      - name: Build signed release APK
+      - name: Build signed release APKs
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          ./gradlew \
+            :app:assembleArmeabiRelease \
+            :app:assembleArm64Release \
+            --no-daemon --stacktrace
 
-      - name: Collect and verify APK
+      - name: Collect and verify APKs
         run: |
           mkdir -p release
-          cp app/build/outputs/apk/release/app-release.apk "release/$APK_NAME"
-          test -f "release/$APK_NAME"
+          cp app/build/outputs/apk/armeabi/release/app-armeabi-release.apk \
+            "release/$RELEASE_TAG-armeabi.apk"
+          cp app/build/outputs/apk/arm64/release/app-arm64-release.apk \
+            "release/$RELEASE_TAG-arm64.apk"
+          test "$(find release -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "release/$APK_NAME"
+          for apk in release/*.apk; do
+            "$APKSIGNER" verify --verbose --print-certs "$apk"
+          done
           cd release
-          sha256sum "./$APK_NAME" > SHA256SUMS.txt
+          sha256sum ./*.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ringserver-apk
+          name: ringserver-apks
           path: release/*
 
       - name: Publish GitHub Release

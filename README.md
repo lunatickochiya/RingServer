@@ -56,8 +56,9 @@ gradlew.bat assembleDebug
 仓库内置 `.github/workflows/release.yml`，参考 Y-TVBOX 的发布流程：
 
 1. 进入仓库 **Actions → RingServer → Run workflow**；
-2. 自动执行 `:app:assembleRelease`，用签名密钥签名，生成
-   `RingServer-<日期>-<时间>.apk` 与 `SHA256SUMS.txt`；
+2. 自动执行 `:app:assembleArmeabiRelease` 与 `:app:assembleArm64Release`，
+   用签名密钥签名，分别生成 `RingServer-<日期>-<时间>-armeabi.apk` 和
+   `RingServer-<日期>-<时间>-arm64.apk`，以及 `SHA256SUMS.txt`；
 3. 同时上传 Actions artifact，并创建同名 GitHub Release。
 
 ### 签名 Secrets
@@ -86,9 +87,19 @@ export RINGSERVER_KEYSTORE_FILE="$PWD/signing/ringserver-release.p12"
 export RINGSERVER_KEYSTORE_PASSWORD='你的密钥库密码'
 export RINGSERVER_KEY_ALIAS='ringserver'
 export RINGSERVER_KEY_PASSWORD='你的私钥密码'
-./gradlew assembleRelease
-# 产物：app/build/outputs/apk/release/app-release.apk
+./gradlew assembleArmeabiRelease assembleArm64Release
+# 产物：
+# app/build/outputs/apk/armeabi/release/app-armeabi-release.apk
+# app/build/outputs/apk/arm64/release/app-arm64-release.apk
 ```
+
+### ABI 版本说明
+
+工程按 ABI 分为两个 flavor：`armeabi`（`armeabi-v7a`，32 位）与
+`arm64`（`arm64-v8a`，64 位）。当前应用是纯 Java、没有 native 库，
+两个 APK 解包后的内容完全一致（仅打包顺序/签名块导致 SHA-256 不同），
+32 位和 64 位设备都可以安装任意一个。保留 flavor 是为了后续加入 native
+组件或按 ABI 分发时不用再改构建结构。
 
 ## 安装与使用
 
