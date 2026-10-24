@@ -30,9 +30,19 @@ public class MainActivity extends Activity {
     private Button stopButton;
     private Switch rootSwitch;
     private Switch bootSwitch;
+    private EditText portEdit;
     private EditText ringKeyEdit;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+
+    /** 定时刷新运行状态与实际端口（端口回退、Root 授权后界面能自动更新） */
+    private final Runnable statusTicker = new Runnable() {
+        @Override
+        public void run() {
+            refreshUi();
+            handler.postDelayed(this, 2000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +57,8 @@ public class MainActivity extends Activity {
         rootSwitch = findViewById(R.id.rootSwitch);
         bootSwitch = findViewById(R.id.bootSwitch);
         Button testButton = findViewById(R.id.testButton);
+        portEdit = findViewById(R.id.portEdit);
+        Button savePortButton = findViewById(R.id.savePortButton);
         ringKeyEdit = findViewById(R.id.ringKeyEdit);
         Button saveKeyButton = findViewById(R.id.saveKeyButton);
 
@@ -87,6 +99,24 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "开机自启已关闭", Toast.LENGTH_SHORT).show();
             }
             refreshRootStatus();
+        });
+
+        // -------- 服务端口 --------
+        portEdit.setText(String.valueOf(Prefs.getPort(this)));
+        savePortButton.setOnClickListener(v -> {
+            int port = parseInt(text(portEdit), -1);
+            if (port < 1 || port > 65535) {
+                Toast.makeText(this, "端口必须是 1-65535 的数字", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Prefs.setPort(this, port);
+            if (RingServerService.isRunning()) {
+                RingServerService.restart(this);
+            } else {
+                RingServerService.start(this);
+            }
+            Toast.makeText(this, "端口已保存为 " + port + "，正在重启服务…", Toast.LENGTH_SHORT).show();
+            handler.postDelayed(this::refreshUi, 900);
         });
 
         // -------- 访问密钥 --------
@@ -142,6 +172,14 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshUi();
         refreshRootStatus();
+        handler.removeCallbacks(statusTicker);
+        handler.post(statusTicker);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        handler.removeCallbacks(statusTicker);
     }
 
     // ------------------------------------------------------------------ 状态
@@ -157,7 +195,8 @@ public class MainActivity extends Activity {
 
     private void refreshUi() {
         boolean running = RingServerService.isRunning();
-        statusText.setText(running ? "● 服务运行中" : "○ 服务未运行");
+        int port = RingServerService.getActivePort();
+        statusText.setText(running ? "● 服务运行中（端口 " + port + "）" : "○ 服务未运行");
         statusText.setTextColor(running ? 0xFF2E7D32 : 0xFF9E9E9E);
         startButton.setEnabled(!running);
         stopButton.setEnabled(running);
@@ -168,14 +207,25 @@ public class MainActivity extends Activity {
             if (TextUtils.isEmpty(ip)) {
                 sb.append("未获取到局域网 IP（请连接 Wi-Fi/热点）");
             } else {
-                sb.append("触发地址：http://").append(ip).append(":").append(RingServerService.PORT)
-                        .append("/ring").append(keySuffix());
-                sb.append("\n手机本地：http://127.0.0.1:").append(RingServerService.PORT)
+                sb.append("控制页面：http://").append(ip).append(":").append(port)
+                        .append("/").append(keySuffix());
+                sb.append("\n触发地址：http://").append(ip).append(":").append(port)
                         .append("/ring").append(keySuffix());
             }
-            urlText.setText(sb.toString());
+            sb.append("\n手机本地：http://127.0.0.1:").append(port)
+                    .append("/").append(keySuffix());
+            String error = RingServerService.getLastError();
+            if (!TextUtils.isEmpty(error)) {
+                sb.append("\n注意：").append(error);
+            }
+            String text = sb.toString();
+            if (!text.equals(urlText.getText().toString())) {
+                urlText.setText(text);
+            }
         } else {
-            urlText.setText("启动服务后显示触发地址");
+            if (!"启动服务后显示控制页面地址".equals(urlText.getText().toString())) {
+                urlText.setText("启动服务后显示控制页面地址");
+            }
         }
     }
 
@@ -203,6 +253,14 @@ public class MainActivity extends Activity {
 
     private static String text(EditText e) {
         return e.getText() == null ? "" : e.getText().toString().trim();
+    }
+
+    private static int parseInt(String s, int fallback) {
+        try {
+            return Integer.parseInt(s);
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private String getLocalIpV4() {

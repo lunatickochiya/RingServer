@@ -1,9 +1,11 @@
 # RingServer — HTTP 触发「强制响铃」APK（局域网）
 
-一个极简 Android 应用：内置 NanoHTTPD 轻量 HTTP 服务器，监听 **8089** 端口；
-收到 `GET/POST /ring` 请求后，用**闹钟音频流（STREAM_ALARM + USAGE_ALARM）**
-强制播放系统闹钟铃声 —— **静音 / 勿扰（闹钟除外）模式下也会响**，
-与系统闹钟、「查找手机」是同一机制。
+一个极简 Android 应用：内置 NanoHTTPD 轻量 HTTP 服务器，端口可在应用内配置
+（**默认 80**）；收到 `GET/POST /ring` 请求后，用**闹钟音频流
+（STREAM_ALARM + USAGE_ALARM）**强制播放系统闹钟铃声 ——
+**静音 / 勿扰（闹钟除外）模式下也会响**，与系统闹钟、「查找手机」是同一机制。
+
+浏览器打开 `http://手机IP:端口/` 即可看到网页控制面板，点按钮开始/停止响铃。
 
 典型用途：找不到手机时，从同一局域网内的电脑 / 另一台设备触发响铃。
 
@@ -15,14 +17,16 @@
 
 | 端点 | 方法 | 作用 |
 |---|---|---|
+| `/` | GET | 网页控制面板：开始 / 停止响铃、状态显示、密钥输入 |
+| `/status` | GET | JSON 状态：`{"ringing":true,"port":80}` |
 | `/ring` | GET / POST | 强制响铃（循环播放，1 分钟后自动停止） |
 | `/stop` | GET / POST | 立即停止响铃并恢复原音量 |
-| `/` | GET | 服务说明 |
 
 > 在设置里填了「访问密钥」后，`/ring` 与 `/stop` 必须带 key：
 > `/ring?key=xxxx`，或请求头 `X-Ring-Key: xxxx`；密钥留空则不校验。
+> 网页控制面板会自动记住你输入的密钥（浏览器 localStorage）。
 
-应用内界面：启动 / 停止服务、显示局域网触发地址、本地测试响铃、
+应用内界面：启动 / 停止服务、自定义端口、显示局域网控制页面地址、本地测试响铃、
 可选访问密钥，以及 **Root 模式**（防杀后台）和 **开机自启**两个开关。
 
 ## 环境要求
@@ -38,7 +42,8 @@
 
 1. `File → Open`，选择本目录；
 2. 等待 Gradle Sync 完成（首次会自动下载 Gradle 8.7 与依赖）；
-3. `Build → Build APK(s)`，产物在 `app/build/outputs/apk/debug/app-debug.apk`。
+3. 选择 `armeabiDebug` 或 `arm64Debug`，`Build → Build APK(s)`，产物在
+   `app/build/outputs/apk/<flavor>/debug/`。
 
 ### 方式二：命令行
 
@@ -48,7 +53,9 @@ set ANDROID_HOME=C:\path\to\Android\Sdk
 :: 或在工程根目录新建 local.properties：sdk.dir=C\:\\path\\to\\Android\\Sdk
 
 gradlew.bat assembleDebug
-:: 产物：app\build\outputs\apk\debug\app-debug.apk
+:: 一次构建两个 flavor，产物：
+:: app\build\outputs\apk\armeabi\debug\app-armeabi-debug.apk
+:: app\build\outputs\apk\arm64\debug\app-arm64-debug.apk
 ```
 
 ## GitHub Actions 自动构建与签名
@@ -104,13 +111,32 @@ export RINGSERVER_KEY_PASSWORD='你的私钥密码'
 ## 安装与使用
 
 1. 安装 APK，打开应用即自动启动服务（Android 13+ 会请求通知权限，请允许）；
-2. 记下界面显示的地址，形如 `http://192.168.x.x:8089/ring`；
-3. 在**同一局域网**的另一台设备上触发：
-   - 浏览器直接打开该地址，或
-   - `curl http://192.168.x.x:8089/ring`；
-4. 手机本地也可自测：`http://127.0.0.1:8089/ring`；
-5. 响铃循环播放，**1 分钟自动停止**；想提前停就访问 `/stop`，
-   或在应用里点「停止服务」。
+2. 在应用里设置端口（默认 **80**），点「保存端口并重启服务」；
+3. 记下界面显示的地址，形如 `http://192.168.x.x/`（80 端口可省略）；
+4. 在**同一局域网**的另一台设备上打开该地址，进入网页控制面板：
+   - 点「开始响铃」/「停止响铃」；
+   - 若设置了访问密钥，在页面上输入一次即可（浏览器会记住）；
+5. 手机本地也可自测：`http://127.0.0.1/`；
+6. 也可以不用页面，直接请求 API：
+   - `curl http://192.168.x.x/ring`
+   - `curl http://192.168.x.x/stop`
+7. 响铃循环播放，**1 分钟自动停止**；也可在应用里点「停止服务」。
+
+## 端口设置与低端口限制
+
+默认端口 **80**，可在应用内修改并立即重启 HTTP 服务。
+
+Android / Linux 的非 root 应用默认**不能绑定 1024 以下的端口**，因此：
+
+1. 应用先直接尝试绑定配置端口；
+2. 如果失败、端口 < 1024 且已开启 **Root 模式**，会尝试通过 root 执行
+   `sysctl -w net.ipv4.ip_unprivileged_port_start=0`（Linux 4.11+；
+   这是系统级设置，重启后失效）；
+3. 仍然失败则自动回退到 **8089**，再失败回退 **8080**；
+4. 界面和通知栏会显示**实际监听端口**及回退原因。
+
+> Android 5 / 6 等老内核通常没有 `ip_unprivileged_port_start`，无法绑定 80，
+> 请使用 `1024` 以上的端口（如 8089）。部分 ROM 已默认放开低端口时可直接用 80。
 
 ## 强制响铃的原理（关键实现）
 
@@ -141,6 +167,7 @@ export RINGSERVER_KEY_PASSWORD='你的私钥密码'
 | Root 看门狗拉起服务 | `am start-foreground-service` | `am startservice` |
 | 进程探测 | `pidof` | `ps` + `grep` 回落 |
 | 会话分离 | `setsid` | `nohup` 回落 |
+| 绑定低端口（<1024） | 非 root 默认不允许；Root 模式 + Linux 4.11+ 可放开 | 老内核通常无 sysctl，自动回退 8089 |
 
 ## Root 模式（防杀后台，需已 root）
 
@@ -192,6 +219,9 @@ export RINGSERVER_KEY_PASSWORD='你的私钥密码'
 - 服务器监听 `0.0.0.0`，**同一局域网内任何设备都能触发**，请只在可信
   网络（家庭 / 办公 Wi-Fi）中使用；建议设置「访问密钥」，或在路由器 / 手机
   防火墙层面限制来源；
+- 默认端口 80 在多数设备上需要 **Root 模式**放开低端口限制（Linux 4.11+）；
+  老内核（Android 5 / 6）通常无法绑定 80，会自动回退到 8089 / 8080；
+  `sysctl` 放开的是系统级设置，会影响所有应用，重启后失效；
 - Android 5.0 / 5.1 的部分老机型可能没有 `setsid`、`pidof`，应用已做回落，
   但 Root 模式的行为仍取决于具体 ROM 的 `su` / `am` 实现；
 - 本应用不提供任何公网访问能力，跨网络使用请自行通过可信 VPN 接入局域网。
@@ -209,11 +239,11 @@ RingServer/
     └── src/main/
         ├── AndroidManifest.xml
         ├── java/com/example/ringserver/
-        │   ├── MainActivity.java               # 简单 UI：启停服务 + 地址 + 访问密钥 + Root/开机自启开关
-        │   ├── RingServerService.java          # 前台服务，持有 HTTP 服务器
-        │   ├── RingHttpServer.java             # NanoHTTPD 子类，处理 /ring /stop（含密钥鉴权）
-        │   ├── RingHelper.java                 # 强制响铃核心（STREAM_ALARM）
-        │   ├── Prefs.java                      # 访问密钥的存取
+        │   ├── MainActivity.java               # UI：启停服务 + 端口 + 地址 + 访问密钥 + Root/开机自启
+        │   ├── RingServerService.java          # 前台服务，端口绑定/回退、HTTP 服务器生命周期
+        │   ├── RingHttpServer.java             # / 网页控制页 + /status + /ring /stop（含密钥鉴权）
+        │   ├── RingHelper.java                 # 强制响铃核心（STREAM_ALARM）+ 响铃状态
+        │   ├── Prefs.java                      # 端口、访问密钥的存取
         │   ├── RootHelper.java                 # Root 模式：su 白名单 + OOM + 看门狗 + 开机脚本
         │   └── BootReceiver.java               # 开机自启（BOOT_COMPLETED 广播）
         ├── assets/
@@ -229,7 +259,8 @@ RingServer/
 
 ## 想改的东西
 
-- **改端口**：改 `RingServerService.PORT`，以及 `res/layout/activity_main.xml`
-  底部用法提示里的 `8089` 示例地址（仅文案）；
+- **改默认端口**：改 `Prefs.DEFAULT_PORT`；回退端口在
+  `Prefs.FALLBACK_PORT` / `Prefs.SECONDARY_FALLBACK_PORT`；界面里可直接改端口；
+- **改网页控制面板**：改 `RingHttpServer.PAGE_TEMPLATE`（纯 HTML/CSS/JS，无外部依赖）；
 - **改触发路径**：改 `RingHttpServer.serve()` 里的 URI 判断；
 - **改响铃时长**：改 `RingHelper.AUTO_STOP_MS`。

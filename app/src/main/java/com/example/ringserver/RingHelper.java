@@ -30,6 +30,7 @@ public final class RingHelper {
     private static AudioManager amRef;
     private static AudioFocusRequest focusRequest;
     private static int originalVolume = -1;
+    private static volatile boolean ringing;
 
     private static final Handler handler = new Handler(Looper.getMainLooper());
     private static final Runnable autoStop = RingHelper::stopRinging;
@@ -89,11 +90,13 @@ public final class RingHelper {
             mp.setLooping(true);
             mp.setOnErrorListener((mp1, what, extra) -> {
                 Log.e(TAG, "playback error: " + what + "/" + extra);
+                ringing = false;
                 return true;
             });
             mp.prepare();
             mp.start();
             player = mp;
+            ringing = true;
 
             handler.removeCallbacks(autoStop);
             handler.postDelayed(autoStop, AUTO_STOP_MS);
@@ -106,6 +109,7 @@ public final class RingHelper {
 
     /** 停止响铃并恢复原音量。 */
     public static synchronized void stopRinging() {
+        ringing = false;
         handler.removeCallbacks(autoStop);
         if (player != null) {
             try {
@@ -119,6 +123,18 @@ public final class RingHelper {
             player = null;
         }
         restoreVolume();
+    }
+
+    /** 当前是否正在响铃（供 /status 与网页控制页使用）。 */
+    public static synchronized boolean isRinging() {
+        if (!ringing || player == null) {
+            return false;
+        }
+        try {
+            return player.isPlaying();
+        } catch (IllegalStateException e) {
+            return false;
+        }
     }
 
     private static void restoreVolume() {

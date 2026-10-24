@@ -20,8 +20,8 @@ android {
         // Android 5.0（API 21）起可用
         minSdk 21
         targetSdk 34
-        versionCode 5
-        versionName "1.4"
+        versionCode 6
+        versionName "1.5"
     }
 
     // 按 ABI 分成两个 flavor：armeabi（armeabi-v7a）与 arm64（arm64-v8a）。

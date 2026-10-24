@@ -103,6 +103,30 @@ public final class RootHelper {
     }
 
     // ------------------------------------------------------------------
+    // 低端口权限（80 等）
+    // ------------------------------------------------------------------
+
+    /**
+     * 尝试放开内核对非特权低端口的限制（Linux 4.11+ 的
+     * {@code net.ipv4.ip_unprivileged_port_start}），需要 root。
+     *
+     * <p>这是系统级设置，会影响所有应用，重启后失效；老内核（如 Android 5）
+     * 没有这个 sysctl，会返回 false，由调用方回退到高端口。
+     */
+    public static boolean allowLowPorts() {
+        if (!isRootAvailable()) {
+            Log.i(TAG, "allowLowPorts: no root");
+            return false;
+        }
+        boolean ok = su("sysctl -w net.ipv4.ip_unprivileged_port_start=0");
+        if (!ok) {
+            ok = su("echo 0 > /proc/sys/net/ipv4/ip_unprivileged_port_start");
+        }
+        Log.i(TAG, "allowLowPorts: " + ok);
+        return ok;
+    }
+
+    // ------------------------------------------------------------------
     // 系统级白名单 + OOM 保护
     // ------------------------------------------------------------------
 
