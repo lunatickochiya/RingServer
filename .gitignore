@@ -7,3 +7,9 @@ build/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# 构建产物
+*.apk
+
+# 发布签名文件（勿提交）
+signing/

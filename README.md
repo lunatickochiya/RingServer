@@ -51,6 +51,45 @@ gradlew.bat assembleDebug
 :: 产物：app\build\outputs\apk\debug\app-debug.apk
 ```
 
+## GitHub Actions 自动构建与签名
+
+仓库内置 `.github/workflows/release.yml`，参考 Y-TVBOX 的发布流程：
+
+1. 进入仓库 **Actions → RingServer → Run workflow**；
+2. 自动执行 `:app:assembleRelease`，用签名密钥签名，生成
+   `RingServer-<日期>-<时间>.apk` 与 `SHA256SUMS.txt`；
+3. 同时上传 Actions artifact，并创建同名 GitHub Release。
+
+### 签名 Secrets
+
+在仓库 **Settings → Secrets and variables → Actions** 添加 4 个 secrets
+（本仓库使用独立的 RingServer 签名密钥，不从属于 Y-TVBOX）：
+
+| Secret | 内容 |
+|---|---|
+| `RINGSERVER_KEYSTORE_BASE64` | PKCS12 密钥库的 Base64（单行） |
+| `RINGSERVER_KEYSTORE_PASSWORD` | 密钥库密码 |
+| `RINGSERVER_KEY_ALIAS` | 密钥别名，当前为 `ringserver` |
+| `RINGSERVER_KEY_PASSWORD` | 私钥密码（PKCS12 下与密钥库密码相同） |
+
+> 未配置 secrets 时，工作流会临时生成一套签名密钥以保证构建成功，但每次
+> 运行签名都不同，APK 无法覆盖升级。正式发布请配置上述 secrets。
+>
+> 本机签名密钥保存在 `signing/`（已加入 `.gitignore`，不会提交）。
+> 密钥信息见 `signing/ringserver-signing-info.txt`，**请离线备份**；
+> 密钥丢失后已安装版本将无法覆盖升级。
+
+本地签名构建：
+
+```bash
+export RINGSERVER_KEYSTORE_FILE="$PWD/signing/ringserver-release.p12"
+export RINGSERVER_KEYSTORE_PASSWORD='你的密钥库密码'
+export RINGSERVER_KEY_ALIAS='ringserver'
+export RINGSERVER_KEY_PASSWORD='你的私钥密码'
+./gradlew assembleRelease
+# 产物：app/build/outputs/apk/release/app-release.apk
+```
+
 ## 安装与使用
 
 1. 安装 APK，打开应用即自动启动服务（Android 13+ 会请求通知权限，请允许）；
@@ -150,10 +189,12 @@ gradlew.bat assembleDebug
 
 ```
 RingServer/
+├── .github/workflows/release.yml                 # GitHub Actions 签名构建 / Release
+├── signing/                                      # 本地签名密钥（已 gitignore，不提交）
 ├── settings.gradle / build.gradle / gradle.properties
-├── gradlew / gradlew.bat / gradle/wrapper/     # Gradle 8.7 wrapper
+├── gradlew / gradlew.bat / gradle/wrapper/       # Gradle 8.7 wrapper
 └── app/
-    ├── build.gradle                            # AGP 8.5.2，compileSdk 34，minSdk 21
+    ├── build.gradle                              # AGP 8.5.2，compileSdk 34，minSdk 21
     └── src/main/
         ├── AndroidManifest.xml
         ├── java/com/example/ringserver/

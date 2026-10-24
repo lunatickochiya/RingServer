@@ -1,0 +1,115 @@
+name: RingServer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set release tag
+        run: |
+          TAG="RingServer-$(date +'%Y.%m.%d-%H%M')"
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "APK_NAME=$TAG.apk" >> "$GITHUB_ENV"
+
+      - name: Configure Android SDK
+        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      - name: Prepare release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RINGSERVER_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RINGSERVER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RINGSERVER_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RINGSERVER_KEY_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ringserver-signing"
+          KEYSTORE_FILE="$RUNNER_TEMP/ringserver-signing/release.p12"
+
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
+          elif [[ -n "$KEYSTORE_BASE64$KEYSTORE_PASSWORD$KEY_ALIAS$KEY_PASSWORD" ]]; then
+            echo "RingServer signing secrets are incomplete." >&2
+            exit 1
+          else
+            echo "::warning::Using a temporary signing key. Configure RINGSERVER signing secrets to support APK upgrades."
+            KEYSTORE_PASSWORD=android
+            KEY_ALIAS=ringserver
+            KEY_PASSWORD=android
+            keytool -genkeypair \
+              -keystore "$KEYSTORE_FILE" \
+              -storetype PKCS12 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keypass "$KEY_PASSWORD" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=RingServer Temporary,OU=GitHub Actions,O=RingServer,C=CN"
+          fi
+
+          {
+            echo "RINGSERVER_KEYSTORE_FILE=$KEYSTORE_FILE"
+            echo "RINGSERVER_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "RINGSERVER_KEY_ALIAS=$KEY_ALIAS"
+            echo "RINGSERVER_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Collect and verify APK
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/release/app-release.apk "release/$APK_NAME"
+          test -f "release/$APK_NAME"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "release/$APK_NAME"
+          cd release
+          sha256sum "./$APK_NAME" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ringserver-apk
+          path: release/*
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --target "$GITHUB_SHA" \
+              --title "RingServer $RELEASE_TAG" \
+              --generate-notes
+          fi

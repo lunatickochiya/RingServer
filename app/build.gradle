@@ -2,6 +2,15 @@ plugins {
     id 'com.android.application'
 }
 
+// 发布签名：由环境变量注入（本地签名 / GitHub Actions secrets）。
+// 未提供时 release 构建保持未签名，不影响 debug 构建。
+def releaseKeystorePath = System.getenv("RINGSERVER_KEYSTORE_FILE")
+def releaseKeystorePassword = System.getenv("RINGSERVER_KEYSTORE_PASSWORD")
+def releaseKeyAlias = System.getenv("RINGSERVER_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("RINGSERVER_KEY_PASSWORD")
+def hasReleaseSigning = [releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword]
+        .every { it != null && !it.isEmpty() }
+
 android {
     namespace 'com.example.ringserver'
     compileSdk 34
@@ -15,6 +24,17 @@ android {
         versionName "1.4"
     }
 
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -23,6 +43,9 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
