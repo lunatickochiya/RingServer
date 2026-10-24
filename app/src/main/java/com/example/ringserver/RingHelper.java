@@ -7,6 +7,7 @@ import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -27,6 +28,7 @@ public final class RingHelper {
 
     private static MediaPlayer player;
     private static AudioManager amRef;
+    private static AudioFocusRequest focusRequest;
     private static int originalVolume = -1;
 
     private static final Handler handler = new Handler(Looper.getMainLooper());
@@ -54,10 +56,15 @@ public final class RingHelper {
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
-        AudioFocusRequest focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attrs)
-                .build();
-        am.requestAudioFocus(focusRequest);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(attrs)
+                    .build();
+            am.requestAudioFocus(focusRequest);
+        } else {
+            // Android 5.0 - 7.1：旧版音频焦点 API
+            am.requestAudioFocus(null, AudioManager.STREAM_ALARM, AudioManager.AUDIOFOCUS_GAIN);
+        }
 
         // 2) 把闹钟音量拉到最大，响铃结束后恢复原音量
         originalVolume = am.getStreamVolume(stream);
@@ -115,13 +122,26 @@ public final class RingHelper {
     }
 
     private static void restoreVolume() {
-        if (amRef != null && originalVolume >= 0) {
+        if (amRef != null) {
+            if (originalVolume >= 0) {
+                try {
+                    amRef.setStreamVolume(AudioManager.STREAM_ALARM, originalVolume, 0);
+                } catch (Exception ignored) {
+                }
+            }
             try {
-                amRef.setStreamVolume(AudioManager.STREAM_ALARM, originalVolume, 0);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (focusRequest != null) {
+                        amRef.abandonAudioFocusRequest(focusRequest);
+                    }
+                } else {
+                    amRef.abandonAudioFocus(null);
+                }
             } catch (Exception ignored) {
             }
         }
         amRef = null;
+        focusRequest = null;
         originalVolume = -1;
     }
 }

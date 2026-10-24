@@ -2,6 +2,7 @@ package com.example.ringserver;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -11,6 +12,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Root 模式：用 su 做系统级保活 + 开机自启，不依赖任何第三方框架。
@@ -108,14 +111,17 @@ public final class RootHelper {
      * 失败只记日志，不影响其它项。
      */
     public static void applySystemProtections() {
-        String[] cmds = {
-                "dumpsys deviceidle whitelist +" + PKG,
-                "cmd deviceidle whitelist +" + PKG,
-                "am set-standby-bucket " + PKG + " active",
-                "cmd appops set " + PKG + " RUN_IN_BACKGROUND allow",
-                "cmd appops set " + PKG + " RUN_ANY_IN_BACKGROUND allow",
-                "appops set " + PKG + " AUTO_START allow",
-        };
+        List<String> cmds = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Doze / App Standby / 后台执行限制：Android 6.0+ 才有
+            cmds.add("dumpsys deviceidle whitelist +" + PKG);
+            cmds.add("cmd deviceidle whitelist +" + PKG);
+            cmds.add("am set-standby-bucket " + PKG + " active");
+            cmds.add("cmd appops set " + PKG + " RUN_IN_BACKGROUND allow");
+            cmds.add("cmd appops set " + PKG + " RUN_ANY_IN_BACKGROUND allow");
+        }
+        // 部分国产 ROM 的扩展 op，失败无妨
+        cmds.add("appops set " + PKG + " AUTO_START allow");
         for (String c : cmds) {
             if (!su(c)) {
                 Log.d(TAG, "not effective (ignore): " + c);
@@ -145,8 +151,11 @@ public final class RootHelper {
                 Log.e(TAG, "chmod watchdog failed");
                 return;
             }
-            // nohup + setsid + 输入重定向：与 su 会话分离，su 退出后守护进程继续存活
-            su("nohup setsid sh " + WATCHDOG_SCRIPT + " >/dev/null 2>&1 < /dev/null &");
+            // nohup + setsid + 输入重定向：与 su 会话分离，su 退出后守护进程继续存活。
+            // 老系统（Android 5）可能没有 setsid，回落到 nohup。
+            String bg = " >/dev/null 2>&1 < /dev/null &";
+            su("if command -v setsid >/dev/null 2>&1; then setsid sh " + WATCHDOG_SCRIPT + bg
+                    + " else nohup sh " + WATCHDOG_SCRIPT + bg + " fi");
             if (!isWatchdogRunning()) {
                 Log.w(TAG, "watchdog launched but not detected, check su permission");
             } else {

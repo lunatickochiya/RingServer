@@ -23,11 +23,11 @@ public class BootReceiver extends BroadcastReceiver {
 
         if (RootHelper.isBootStartEnabled(context)) {
             try {
-                context.startForegroundService(new Intent(context, RingServerService.class));
+                RingServerService.start(context);
                 Log.i(TAG, "RingServerService started from boot");
             } catch (Exception e) {
                 // 部分 ROM 会拦开机广播启动前台服务，Root 看门狗会兜底
-                Log.e(TAG, "startForegroundService from boot failed (ROM restriction?)", e);
+                Log.e(TAG, "start service from boot failed (ROM restriction?)", e);
             }
         }
 
